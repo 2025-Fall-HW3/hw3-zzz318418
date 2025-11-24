@@ -10,3 +10,11 @@ argparse
 
 test
 
+# yfinance
+# numpy==1.26.4
+# pandas
+# matplotlib
+# quantstats==0.0.62
+# gurobipy
+# ipython
+# argparse

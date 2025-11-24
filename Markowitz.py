@@ -62,6 +62,16 @@ class EqualWeightPortfolio:
         """
         TODO: Complete Task 1 Below
         """
+        # 1. 計算可投資資產的數量 m
+        m = len(assets)
+
+        # 2. 計算等權重
+        if m > 0:
+            equal_weight = 1.0 / m
+        
+        # 3. 將權重分配給所有可投資資產
+            self.portfolio_weights.loc[:, assets] = equal_weight
+        
 
         """
         TODO: Complete Task 1 Above
@@ -106,7 +116,8 @@ class RiskParityPortfolio:
     def calculate_weights(self):
         # Get the assets by excluding the specified column
         assets = df.columns[df.columns != self.exclude]
-
+        m = len(assets) # 可投資資產的數量
+        
         # Calculate the portfolio weights
         self.portfolio_weights = pd.DataFrame(index=df.index, columns=df.columns)
 
@@ -114,14 +125,43 @@ class RiskParityPortfolio:
         TODO: Complete Task 2 Below
         """
 
+        # 1. 逐日計算權重，從 lookback 窗口結束後的下一天開始
+        for i in range(self.lookback + 1, len(df)):
+            # 獲取計算當前權重所需的前 lookback 天的回報數據 (t-lookback 到 t-1)
+            R_n = df_returns.copy()[assets].iloc[i - self.lookback : i]
+
+            # 計算資產在該窗口內的波動率 (日回報標準差)
+            # R_n.std() 是一個包含 m 個資產波動率的 Pandas Series
+            sigma = R_n.std()
+
+            # 處理潛在的零波動率 (避免除以零)
+            # 將波動率為零的資產設為一個非常大的值，使其權重接近零
+            sigma[sigma == 0] = 1e9 
+
+            # 2. 計算逆波動率 (1 / sigma_i)
+            inverse_volatility = 1.0 / sigma
+
+            # 3. 計算總逆波動率 (分母)
+            sum_inverse_volatility = inverse_volatility.sum()
+            
+            # 4. 計算最終的風險平價權重 (w_i)
+            weights = inverse_volatility / sum_inverse_volatility
+
+            # 5. 將計算出的權重賦值給當前日期
+            # df.index[i] 是當前的再平衡日期 t
+            # weights 已經是一個 Series，可以直接賦值給對應的資產列
+            self.portfolio_weights.loc[df.index[i], assets] = weights.values
 
 
         """
         TODO: Complete Task 2 Above
         """
 
+        # 確保任何遺漏的日期（例如前 lookback 天）或非投資資產（如 SPY）的權重為 0
         self.portfolio_weights.ffill(inplace=True)
         self.portfolio_weights.fillna(0, inplace=True)
+
+
 
     def calculate_portfolio_returns(self):
         # Ensure weights are calculated
@@ -188,10 +228,29 @@ class MeanVariancePortfolio:
                 TODO: Complete Task 3 Below
                 """
 
-                # Sample Code: Initialize Decision w and the Objective
-                # NOTE: You can modify the following code
-                w = model.addMVar(n, name="w", ub=1)
-                model.setObjective(w.sum(), gp.GRB.MAXIMIZE)
+                # 1. 初始化決策變數 (Portfolio Weights w)
+                # w 是 n 個資產的權重向量。
+                # Long-only 約束 (w_i >= 0) 可以通過設置 lower bound (lb=0) 實現。
+                # 初始代碼中的 ub=1 也是正確的，因為權重上限是 1。
+                w = model.addMVar(n, name="w", lb=0, ub=1)
+
+                # 2. 定義目標函式 (Objective Function)
+                # Max: w^T * mu - (gamma/2) * w^T * Sigma * w
+                # 這是最大化 (期望回報 - 0.5 * gamma * 方差/風險)
+                
+                # 線性部分 (w^T * mu): 期望回報
+                return_term = mu @ w
+                
+                # 二次部分 (w^T * Sigma * w): 投資組合方差/風險
+                risk_term = w @ Sigma @ w
+                
+                # 設置目標函式：最大化回報並懲罰風險
+                model.setObjective(return_term - (gamma / 2) * risk_term, gp.GRB.MAXIMIZE)
+
+
+                # 3. 添加約束條件 (Constraints)
+                # No-leverage 約束: Sum(w_i) = 1
+                model.addConstr(w.sum() == 1, name="sum_to_one")
 
                 """
                 TODO: Complete Task 3 Above

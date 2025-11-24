@@ -58,11 +58,17 @@ class MyPortfolio:
         self.lookback = lookback
         self.gamma = gamma
 
+    
     def calculate_weights(self):
-        # Get the assets by excluding the specified column
+        # 排除 SPY，取得可投資資產列表
         assets = self.price.columns[self.price.columns != self.exclude]
+        
+        # 定義策略參數 (可根據需要調整這些參數以優化結果)
+        momentum_lookback = 120
+        volatility_lookback = 50
+        n_assets = 5 # 每次選擇前 5 個動量最強的資產
 
-        # Calculate the portfolio weights
+        # 初始化權重 DataFrame
         self.portfolio_weights = pd.DataFrame(
             index=self.price.index, columns=self.price.columns
         )
@@ -70,8 +76,58 @@ class MyPortfolio:
         """
         TODO: Complete Task 4 Below
         """
-        
-        
+# gemini        
+        # 逐日迭代計算權重
+        for i in range(momentum_lookback + 1, len(self.price)):
+            current_date = self.price.index[i]
+            
+            # 1. 動量篩選 (Momentum Screening)
+            
+            # 獲取計算動量所需的數據 (t - momentum_lookback 到 t - 1)
+            # 使用價格數據計算累積回報
+            momentum_price_window = self.price[assets].iloc[i - momentum_lookback : i]
+            
+            # 計算回顧期內的累積回報
+            period_returns = momentum_price_window.iloc[-1] / momentum_price_window.iloc[0] - 1.0
+            
+            # 選擇動量最強的 N 個資產 (N=5)
+            # 使用 .nlargest() 獲取表現最好的資產名稱
+            selected_assets = period_returns.nlargest(n_assets).index.tolist()
+            
+            # 2. 風險平價分配 (Risk Parity Allocation)
+            
+            # 獲取計算波動率所需的日回報數據 (t - volatility_lookback 到 t - 1)
+            volatility_return_window = self.returns[selected_assets].iloc[i - volatility_lookback : i]
+            
+            # 計算波動率 (日回報標準差)
+            sigma = volatility_return_window.std()
+
+            # 處理潛在的零波動率
+            sigma[sigma == 0] = 1e9 
+
+            # 計算逆波動率 (1 / sigma_i)
+            inverse_volatility = 1.0 / sigma
+
+            # 計算總逆波動率 (分母)
+            sum_inverse_volatility = inverse_volatility.sum()
+            
+            # 計算最終的風險平價權重
+            if sum_inverse_volatility > 0:
+                weights = inverse_volatility / sum_inverse_volatility
+            else:
+                weights = pd.Series(0.0, index=selected_assets)
+
+            # 3. 賦值
+            
+            # 初始化當前日期的所有權重為 0
+            current_weights = pd.Series(0.0, index=self.price.columns)
+            
+            # 將計算出的權重賦值給選定的資產
+            current_weights[selected_assets] = weights
+            
+            # 將結果存儲到 portfolio_weights DataFrame 中
+            self.portfolio_weights.loc[current_date] = current_weights
+
         """
         TODO: Complete Task 4 Above
         """
